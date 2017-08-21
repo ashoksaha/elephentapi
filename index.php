@@ -178,6 +178,10 @@ $app->post('/getCoursesByStudId', 'GetAllCoursesByStudentId');
 $app->post('/getCoursePreview', 'GetCoursePreviewBY_Id');
 // Get Discounts Report
 $app->get('/discountsReport', 'DiscountsReport');
+// For Seo Purpose
+$app->post('/createUpdateSeo', 'CreateUpdateSeo');
+$app->get('/getSeotags', 'GetSeoTags');
+$app->post('/getSeoDetail', 'getSeoDetailById');
 $app->run();
 
 function web_url() {
@@ -3129,6 +3133,9 @@ $sql = "SELECT c.id,course_cat_id as courseCategoryId, ".$checkAlreadyTaken." as
 			$allunits = $stmt_unit->fetchAll(PDO::FETCH_OBJ);
 			$course_details[0]->units = $allunits;
 		}
+		if(!empty($request->id)) {
+			$course_details[0]->seo = getSeoDetailByCourseId($request->id);
+		}
 		echo $resp = response('1', "Fetch Course Details",$course_details);
 		} else {
 			echo $resp = response('2', "No Courses Details");
@@ -3138,6 +3145,27 @@ $sql = "SELECT c.id,course_cat_id as courseCategoryId, ".$checkAlreadyTaken." as
 	}
 	//}
 }
+
+function getSeoDetailByCourseId($courseId) {
+		$requestjson = \Slim\Slim::getInstance()->request();
+		$request = json_decode($requestjson->getBody());
+		$id = (isset($request->id) ? $request->id : '');
+$sql = "SELECT tag, value FROM meta_tags WHERE seo_id = ".$courseId." AND seo_type = 'course'";
+		try {
+			$db = getDB();
+			$stmt = $db->prepare($sql);
+			$stmt->execute();
+			$seo_detail = $stmt->fetchAll(PDO::FETCH_OBJ);
+			if(!empty($seo_detail)) {
+				return $seo_detail;
+			} else {
+				return false;
+			}
+		} catch(PDOException $e) {
+			//error_log($e->getMessage(), 3, '/var/tmp/php.log');
+			return false;
+		}
+	}  
                         /******************** Get Course Details BY Course ID ENDS *********************/ 
 /*********************************************************************************************************************/
 /********************************************* Subscription Creation Starts********************************************/ 
@@ -6283,6 +6311,7 @@ $sql = "INSERT INTO payment_methods (id,pg_id,name,position,status,is_deleted) V
 	$instructorId = (isset($request->instructorId) ? $request->instructorId : '');
 	$followers = GetStudentsFollowsByInstructorID($instructorId);
 	$courses =  GetCourseDetailsByInstructorId($instructorId);
+	$seo_details = getSeoDetailByInstructorId($instructorId);
 	$sql = "SELECT admin.fullname as fullName,admin.designation as designation,admin.biography as biography, concat('".$fullpathprofile."',admin.profile_photo) as image from admin WHERE admin.ID = :instructorId";
 	try {
 		$db = getDB();
@@ -6297,6 +6326,7 @@ $sql = "INSERT INTO payment_methods (id,pg_id,name,position,status,is_deleted) V
 			//$Custom[] = $data;
 			$data->followers = $followers;
 			$data->courses = $courses;
+			$data->seo = $seo_details;
 			echo $resp = response('1', "Fetch Followers",$data);
 			//return $courses;
 		} else {
@@ -6307,6 +6337,27 @@ $sql = "INSERT INTO payment_methods (id,pg_id,name,position,status,is_deleted) V
 		echo $resp = response('2', $e->getMessage());
 	}
   }
+
+function getSeoDetailByInstructorId($instructorId) {
+		$requestjson = \Slim\Slim::getInstance()->request();
+		$request = json_decode($requestjson->getBody());
+		$id = (isset($request->id) ? $request->id : '');
+$sql = "SELECT tag, value FROM meta_tags WHERE seo_id = ".$instructorId." AND seo_type = 'instructor'";
+		try {
+			$db = getDB();
+			$stmt = $db->prepare($sql);
+			$stmt->execute();
+			$seo_detail = $stmt->fetchAll(PDO::FETCH_OBJ);
+			if(!empty($seo_detail)) {
+				return $seo_detail;
+			} else {
+				return false;
+			}
+		} catch(PDOException $e) {
+			//error_log($e->getMessage(), 3, '/var/tmp/php.log');
+			return false;
+		}
+	}  
            /********************************** Download Video/Unit For Student Starts **************************************/
 	function DownloadVideo() {
 	$request = \Slim\Slim::getInstance()->request();
@@ -6457,7 +6508,92 @@ function GetLatestCoursesByInstructorId() {
 		}
 	
 }
-	   
+	   /************************************** For SEO PURPOSE Starts*********************************/
+
+function CreateUpdateSeo() {
+	$request = \Slim\Slim::getInstance()->request();
+	$insert = json_decode($request->getBody());
+	$updateId = (isset($insert->id) ? $insert->id : 0);
+	$seoId = (isset($insert->seoId) ? $insert->seoId : 0);
+	$seoType = (isset($insert->seoType) ? $insert->seoType : '');
+	/* $tag = (isset($insert->tag) ? $insert->tag : '');
+	$value = (isset($insert->value) ? $insert->value : '');
+	$status = (isset($insert->status) ? $insert->status : 1);
+	$isDeleted = (isset($insert->isDeleted) ? $insert->isDeleted : 0); */
+	$seoDetails = (isset($insert->seoDetails) ? $insert->seoDetails : array());
+	
+	$sql = "INSERT INTO meta_tags (id, seo_id, seo_type, tag, value, status, is_deleted)";
+	$valueArray = array();
+	$status = 1;
+	$isDeleted = 0;
+	foreach($seoDetails as $seoTag) {
+		array_push($valueArray, "(".$updateId.",".$seoId.",'".$seoType."','".$seoTag->tag."','".$seoTag->value."',".$status.",".$isDeleted.")");
+	}
+	$values = join(",", $valueArray);
+	$sql = $sql." VALUES ".$values."ON DUPLICATE KEY UPDATE seo_id = VALUES(seo_id), seo_type = VALUES(seo_type), tag = VALUES(tag), value = VALUES(value), status = VALUES(status), is_deleted = VALUES(is_deleted)";
+	
+	try {
+		$db = getDB();
+		$stmt = $db->prepare($sql);
+		$stmt->execute();
+		$updated_id = $db->lastInsertId();
+		if($updated_id) {
+			echo $resp = response('1', "Updated Successfully");
+		}
+	} catch(PDOException $e) {
+		//error_log($e->getMessage(), 3, '/var/tmp/php.log');
+		echo $resp = response('2', "Please try after sometime");
+	}
+}
+function GetSeoTags() {
+$sql = "SELECT id, seo_id as seoId, seo_type as seoType, tag, value, status, is_deleted as isDeleted FROM meta_tags ORDER BY id DESC";
+	try {
+		$db = NULL;
+		$db = getDB();
+		$stmt = $db->prepare($sql);
+		$stmt->execute();
+		$coupons = $stmt->fetchALL(PDO::FETCH_OBJ);
+		if(!empty($coupons)) {
+			echo $resp = response('1', "Fetch All Seo Tags",$coupons);
+		} else {
+			echo $resp = response('1', "No Tags");
+		}
+	} catch(PDOException $e) {
+		//error_log($e->getMessage(), 3, '/var/tmp/php.log');
+		echo $resp = response('2', $e->getMessage());
+	}
+}
+function getSeoDetailById() {
+	$requestjson = \Slim\Slim::getInstance()->request();
+	$request = json_decode($requestjson->getBody());
+	$seoId = (isset($request->seoId) ? $request->seoId : '');
+	$seoType = (isset($request->seoType) ? $request->seoType : '');
+	if(!empty($seoId) && !empty($seoType)) {
+		$data = array();
+		$data["seoId"] = $seoId;
+		$data["seoType"] = $seoType;
+		$data["seoDetails"] = array();
+		$sql = "SELECT id, tag, value, status, is_deleted as isDeleted FROM meta_tags WHERE seo_id = ".$seoId." AND seo_type = '".$seoType."'";
+		try {
+			$db = getDB();
+			$stmt = $db->prepare($sql);
+			$stmt->execute();
+			$seo_detail = $stmt->fetchAll(PDO::FETCH_OBJ);
+			if(!empty($seo_detail)) {
+				$data["seoDetails"] = $seo_detail;
+				echo $resp = response('1', "Fetch Seo Detail",$data);
+			} else {
+				echo $resp = response('1', "Fetch Seo Detail", $data);
+			}
+		} catch(PDOException $e) {
+			//error_log($e->getMessage(), 3, '/var/tmp/php.log');
+			echo $resp = response('2', $e->getMessage());
+		}
+	} else {
+		echo $resp = response('2', 'No Details');
+	}
+}
+         /************************************** For SEO PURPOSE Ends*********************************/	   
 /* function DownloadOrdersInCSV() {
 	$requestjson = \Slim\Slim::getInstance()->request();
 	$request = json_decode($requestjson->getBody());
